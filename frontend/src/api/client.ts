@@ -15,6 +15,12 @@ export const verifyToken = async (token: string) => {
   return response.data;
 };
 
+// Register a new voter
+export const registerVoter = async (voterData: { name: string, rfid: string, qrData: string }) => {
+  const response = await apiClient.post("/register", voterData);
+  return response.data;
+};
+
 // Dev helper to setup data
 export const devSetup = async () => {
   const response = await apiClient.post("/dev/setup");

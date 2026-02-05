@@ -24,10 +24,18 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  background-color: #f7fafc; /* gray.50 */
+}
+
+/* Force QR Scanner video visibility */
+video {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  background: black;
 }
 
 h1 {

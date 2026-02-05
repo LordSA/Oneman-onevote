@@ -1,6 +1,5 @@
 import {
   Box,
-  Center,
   Heading,
   Text,
   VStack,
@@ -9,13 +8,14 @@ import {
   AlertTitle,
   AlertDescription,
   Spinner,
+  Container,
+  Center,
+  Button,
+  useToast,
 } from "@chakra-ui/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { QrReader } from "react-qr-reader";
 import { verifyToken } from "../api/client";
-
-// Define strict types for QrReader props if needed, or use 'any' if types are missing
-// The modern library often uses 'onResult' instead of 'onScan'
 
 export const BoothPage = () => {
   const [status, setStatus] = useState<
@@ -23,24 +23,47 @@ export const BoothPage = () => {
   >("idle");
   const [message, setMessage] = useState("");
   const [data, setData] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const toast = useToast();
 
-  const handleScan = async (result: any) => {
+  // Check for camera availability on mount
+  useEffect(() => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setCameraError("Your browser does not support camera access. Please use a modern browser (Chrome, Safari, Firefox) and ensure you are using HTTPS.");
+    }
+  }, []);
+
+  const handleScan = async (result: any, error: any) => {
+    if (error) {
+      const errorName = error?.name || error?.message;
+      // Many non-critical errors occur during normal scanning (no QR found)
+      // We only care about permission or hardware errors
+      if (
+        errorName === "NotAllowedError" || 
+        errorName === "NotFoundError" ||
+        errorName === "NotReadableError" ||
+        errorName === "OverconstrainedError"
+      ) {
+        console.error("Camera Error:", error);
+        setCameraError(`${error.name}: ${error.message}`);
+      }
+      return;
+    }
+
     if (
       result &&
       result?.text &&
       result.text !== data &&
-      status !== "verifying" &&
-      status !== "success"
+      status === "idle"
     ) {
       const token = result.text;
       setData(token);
       setStatus("verifying");
 
       try {
-        await verifyToken(token);
+        const response = await verifyToken(token);
         setStatus("success");
-        setMessage("Voter Verified Successfully");
-        // Reset after 3 seconds for next voter
+        setMessage(`Verified: ${response.name || "Voter"}`);
         setTimeout(() => {
           setStatus("idle");
           setData(null);
@@ -48,7 +71,6 @@ export const BoothPage = () => {
       } catch (e: any) {
         setStatus("error");
         setMessage(e.response?.data?.error || "Verification Failed");
-        // Reset after 3 seconds
         setTimeout(() => {
           setStatus("idle");
           setData(null);
@@ -58,76 +80,163 @@ export const BoothPage = () => {
   };
 
   return (
-    <Center h="100vh" bg="gray.900" color="white">
-      <VStack spacing={8} w="full" maxW="md" p={4}>
-        <Heading size="xl">Polling Booth Scanner</Heading>
+    <Container maxW="container.sm" px={4}>
+      <VStack spacing={6} align="stretch">
+        <Box textAlign="center" color="gray.800">
+          <Heading size="lg" mb={2}>Booth Scanner</Heading>
+          <Text color="gray.600">Scan voter QR code for verification</Text>
+        </Box>
 
         <Box
           w="full"
-          h="300px"
+          maxW="500px"
+          mx="auto"
           bg="black"
           overflow="hidden"
-          rounded="xl"
+          rounded="2xl"
           position="relative"
-          border={
+          shadow="2xl"
+          borderWidth="4px"
+          borderColor={
             status === "success"
-              ? "4px solid green"
+              ? "green.400"
               : status === "error"
-                ? "4px solid red"
-                : "4px solid gray"
+                ? "red.400"
+                : "gray.200"
           }
+          style={{ aspectRatio: "1/1" }}
         >
-          {status === "idle" && (
-            <QrReader
-              onResult={handleScan}
-              constraints={{ facingMode: "environment" }}
-              containerStyle={{ width: "100%", height: "100%" }}
-              videoStyle={{ objectFit: "cover" }}
-            />
-          )}
-          {status === "verifying" && (
-            <Center h="full">
-              <Spinner size="xl" />
+          {cameraError ? (
+            <Center h="full" w="full" p={6} textAlign="center">
+              <VStack spacing={4}>
+                <Alert status="error" variant="subtle" rounded="lg">
+                  <AlertIcon />
+                  <Box>
+                    <AlertTitle fontSize="sm">Camera Error</AlertTitle>
+                    <AlertDescription fontSize="xs">
+                      {cameraError}
+                    </AlertDescription>
+                  </Box>
+                </Alert>
+                <Button size="sm" colorScheme="blue" onClick={() => window.location.reload()}>
+                  Refresh Page
+                </Button>
+              </VStack>
             </Center>
-          )}
-          {status !== "idle" && status !== "verifying" && (
-            <Center
-              h="full"
-              bg={status === "success" ? "green.500" : "red.500"}
-            >
-              <VStack>
-                <Text fontSize="4xl" fontWeight="bold">
-                  {status === "success" ? "✓" : "✕"}
-                </Text>
+          ) : status === "idle" ? (
+            <Box position="absolute" top={0} left={0} w="full" h="full">
+              <QrReader
+                onResult={handleScan}
+                constraints={{ 
+                  facingMode: "environment"
+                }}
+                containerStyle={{ 
+                  width: "100%", 
+                  height: "100%",
+                  display: "block",
+                  position: "relative"
+                }}
+                videoContainerStyle={{
+                  width: "100%",
+                  height: "100%",
+                  paddingTop: "0"
+                }}
+                videoStyle={{ 
+                  width: "100%", 
+                  height: "100%",
+                  objectFit: "cover",
+                  display: "block"
+                }}
+                scanDelay={300}
+              />
+              {/* Scan Overlay */}
+              <Box 
+                position="absolute" 
+                top="50%" 
+                left="50%" 
+                transform="translate(-50%, -50%)"
+                w="70%" 
+                h="70%" 
+                border="2px dashed" 
+                borderColor="whiteAlpha.600"
+                borderRadius="lg"
+                pointerEvents="none"
+                zIndex={1}
+              />
+            </Box>
+          ) : (
+            <Center h="full" w="full" bg={
+              status === "verifying" ? "blackAlpha.700" : 
+              status === "success" ? "green.500" : "red.500"
+            }>
+              <VStack color="white" spacing={4}>
+                {status === "verifying" && (
+                  <>
+                    <Spinner size="xl" thickness="4px" speed="0.65s" />
+                    <Text fontWeight="bold">Verifying Token...</Text>
+                  </>
+                )}
+                {status === "success" && (
+                  <Text fontSize="6xl" fontWeight="bold">✓</Text>
+                )}
+                {status === "error" && (
+                  <Text fontSize="6xl" fontWeight="bold">✕</Text>
+                )}
               </VStack>
             </Center>
           )}
         </Box>
 
-        {status === "success" && (
-          <Alert status="success" variant="solid" rounded="md">
-            <AlertIcon />
-            <VStack align="start">
-              <AlertTitle>Verified!</AlertTitle>
-              <AlertDescription>{message}</AlertDescription>
-            </VStack>
-          </Alert>
-        )}
+        <Box>
+          {status === "success" && (
+            <Alert status="success" variant="solid" rounded="xl" shadow="md">
+              <AlertIcon />
+              <VStack align="start" spacing={0}>
+                <AlertTitle>Verified!</AlertTitle>
+                <AlertDescription fontSize="sm">{message}</AlertDescription>
+              </VStack>
+            </Alert>
+          )}
 
-        {status === "error" && (
-          <Alert status="error" variant="solid" rounded="md">
-            <AlertIcon />
-            <VStack align="start">
-              <AlertTitle>Access Denied</AlertTitle>
-              <AlertDescription>{message}</AlertDescription>
-            </VStack>
-          </Alert>
-        )}
-
-        <Text fontSize="sm" color="gray.400">
-          Scan voter QR code to verify eligibility
-        </Text>
+          {status === "error" && (
+            <Alert status="error" variant="solid" rounded="xl" shadow="md">
+              <AlertIcon />
+              <VStack align="start" spacing={0}>
+                <AlertTitle>Access Denied</AlertTitle>
+                <AlertDescription fontSize="sm">{message}</AlertDescription>
+              </VStack>
+            </Alert>
+          )}
+          
+          {status === "idle" && (
+            <Box p={4} bg="blue.50" rounded="xl">
+              <VStack spacing={3}>
+                <Text fontSize="sm" color="blue.700" fontWeight="medium">
+                  Waiting for QR scan...
+                </Text>
+                {!cameraError && (
+                  <Button 
+                    size="xs" 
+                    variant="ghost" 
+                    colorScheme="blue"
+                    onClick={async () => {
+                      try {
+                        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                        stream.getTracks().forEach(t => t.stop());
+                        toast({ title: "Camera access granted", status: "success", duration: 2000 });
+                      } catch (e: any) {
+                        setCameraError(e.message || "Manual camera check failed");
+                      }
+                    }}
+                  >
+                    Test Camera Access
+                  </Button>
+                )}
+              </VStack>
+            </Box>
+          )}
+        </Box>
       </VStack>
-    </Center>
+    </Container>
   );
 };

@@ -4,7 +4,6 @@ import dotenv from "dotenv";
 import { verifyToken } from "./services/verificationService";
 import { z } from "zod";
 import { db } from "./db";
-import { voters, elections, qrTokens } from "./db/schema";
 
 dotenv.config();
 
@@ -14,9 +13,15 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
 
-// Validation Schema
+// Validation Schemas
 const VerifySchema = z.object({
   token: z.string().min(1),
+});
+
+const RegisterSchema = z.object({
+  name: z.string().min(1),
+  rfid: z.string().min(1),
+  qrData: z.string().min(1),
 });
 
 // Routes
@@ -31,9 +36,7 @@ app.post("/api/verify", async (req, res) => {
     if (error instanceof z.ZodError) {
       res.status(400).json({ error: "Invalid input" });
     } else {
-      // Return 400 for logic errors (invalid token, etc) to keep it simple, or 409 for conflict
-      // For security, 400 is often safe enough, but we'll use message check
-      const status = error.message.includes("already been verified")
+      const status = error.message.includes("already be verified") || error.message.includes("already been verified")
         ? 409
         : 400;
       res
@@ -46,34 +49,43 @@ app.post("/api/verify", async (req, res) => {
   }
 });
 
+// Registration Endpoint
+app.post("/api/register", async (req, res) => {
+  try {
+    const { name, rfid, qrData } = RegisterSchema.parse(req.body);
+    
+    // Create voter profile
+    const voterRef = db.ref("voters").push();
+    await voterRef.set({
+      name,
+      rfid,
+      qrData,
+      has_voted: false,
+      timestamp: ""
+    });
+
+    res.json({ success: true, voterId: voterRef.key });
+  } catch (error: any) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
 // DEV ONLY: Setup Endpoint to create dummy data
 app.post("/api/dev/setup", async (req, res) => {
   try {
-    // Create 1 election
-    const [election] = await db
-      .insert(elections)
-      .values({ name: "Demo Election 2024" })
-      .returning();
-
-    // Create 1 voter
-    const [voter] = await db
-      .insert(voters)
-      .values({ name: "John Doe" })
-      .returning();
-
-    // Create token
-    const tokenValue = "voter-" + Math.random().toString(36).substring(7);
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours expiry
-
-    await db.insert(qrTokens).values({
-      token: tokenValue,
-      voterId: voter.id,
-      electionId: election.id,
-      expiresAt,
+    // Create 1 demo voter based on new structure
+    const voterId = "voter_101";
+    const qrData = "VOTE_SHIBILI_99";
+    
+    await db.ref(`voters/${voterId}`).set({
+      name: "Shibili",
+      rfid: "834D4CC5",
+      qrData: qrData,
+      has_voted: false,
+      timestamp: ""
     });
 
-    res.json({ message: "Setup complete", token: tokenValue, voter, election });
+    res.json({ message: "Setup complete", token: qrData, voterId: voterId });
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }
