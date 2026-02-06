@@ -1,7 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Link as RouterLink } from "react-router-dom";
 import { VoterPage } from "./pages/VoterPage";
-import { BoothPage } from "./pages/BoothPage";
-
+import { BoothPage } from "./pages/BoothPage";import { QrScannerPage } from "./pages/QrScannerPage";
 function App() {
   return (
     <Router>
@@ -24,8 +23,12 @@ function App() {
                   className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
                 >
                   Booth
-                </RouterLink>
-              </div>
+                </RouterLink>                <RouterLink 
+                  to="/scanner" 
+                  className="px-4 py-1.5 text-sm font-medium text-white bg-purple-600 hover:bg-purple-700 rounded-md transition-colors"
+                >
+                  Scanner
+                </RouterLink>              </div>
             </div>
           </div>
         </nav>
@@ -33,8 +36,7 @@ function App() {
         <main className="py-4 sm:py-8 max-w-5xl mx-auto px-4">
           <Routes>
             <Route path="/" element={<VoterPage />} />
-            <Route path="/booth" element={<BoothPage />} />
-          </Routes>
+            <Route path="/booth" element={<BoothPage />} />            <Route path="/scanner" element={<QrScannerPage />} />          </Routes>
         </main>
       </div>
     </Router>
