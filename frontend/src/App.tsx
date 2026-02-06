@@ -1,58 +1,42 @@
 import { BrowserRouter as Router, Routes, Route, Link as RouterLink } from "react-router-dom";
-import { Box, Flex, Button, Container, Heading, HStack, Text } from "@chakra-ui/react";
 import { VoterPage } from "./pages/VoterPage";
 import { BoothPage } from "./pages/BoothPage";
 
 function App() {
   return (
     <Router>
-      <Box minH="100vh" bg="gray.50">
-        <Box 
-          as="nav" 
-          bg="white" 
-          borderBottom="1px" 
-          borderColor="gray.200" 
-          py={3} 
-          position="sticky" 
-          top={0} 
-          zIndex={10}
-        >
-          <Container maxW="container.lg">
-            <Flex align="center" justify="space-between">
-              <Heading size="md" color="blue.600" letterSpacing="tight">
+      <div className="min-h-screen bg-gray-50">
+        <nav className="bg-white border-b border-gray-200 py-3 sticky top-0 z-10 shadow-sm">
+          <div className="max-w-5xl mx-auto px-4">
+            <div className="flex items-center justify-between">
+              <h1 className="text-xl font-bold text-blue-600 tracking-tight">
                 SecureVote
-              </Heading>
-              <HStack spacing={[2, 4]}>
-                <Button 
-                  as={RouterLink} 
+              </h1>
+              <div className="flex gap-2 sm:gap-4">
+                <RouterLink 
                   to="/" 
-                  size="sm" 
-                  variant="ghost"
-                  px={[2, 4]}
+                  className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
                 >
                   Voter
-                </Button>
-                <Button 
-                  as={RouterLink} 
+                </RouterLink>
+                <RouterLink 
                   to="/booth" 
-                  size="sm" 
-                  colorScheme="blue"
-                  px={[2, 4]}
+                  className="px-4 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors"
                 >
                   Booth
-                </Button>
-              </HStack>
-            </Flex>
-          </Container>
-        </Box>
+                </RouterLink>
+              </div>
+            </div>
+          </div>
+        </nav>
 
-        <Box py={[4, 8]}>
+        <main className="py-4 sm:py-8 max-w-5xl mx-auto px-4">
           <Routes>
             <Route path="/" element={<VoterPage />} />
             <Route path="/booth" element={<BoothPage />} />
           </Routes>
-        </Box>
-      </Box>
+        </main>
+      </div>
     </Router>
   );
 }

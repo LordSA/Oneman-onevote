@@ -1,32 +1,3 @@
-import {
-  Box,
-  Button,
-  Heading,
-  Text,
-  VStack,
-  useToast,
-  Container,
-  Card,
-  CardBody,
-  Divider,
-  Badge,
-  Table,
-  Thead,
-  Tbody,
-  Tr,
-  Th,
-  Td,
-  Tabs,
-  TabList,
-  TabPanels,
-  Tab,
-  TabPanel,
-  Spinner,
-  FormControl,
-  FormLabel,
-  Input,
-  HStack,
-} from "@chakra-ui/react";
 import QRCode from "react-qr-code";
 import { useState, useEffect } from "react";
 import { devSetup, registerVoter } from "../api/client";
@@ -43,28 +14,40 @@ interface VoterData {
   timestamp?: number | string;
 }
 
+interface ToastState {
+  message: string;
+  type: "success" | "error" | "info" | "warning";
+  visible: boolean;
+}
+
 export const VoterPage = () => {
+  const [activeTab, setActiveTab] = useState<"register" | "directory">("register");
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [voters, setVoters] = useState<VoterData[]>([]);
-  const [isListening, setIsListening] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   
   // Registration Form State
   const [regName, setRegName] = useState("");
   const [regRfid, setRegRfid] = useState("");
   
-  const toast = useToast();
+  const [toast, setToast] = useState<ToastState>({
+    message: "",
+    type: "info",
+    visible: false
+  });
+
+  const showToast = (message: string, type: ToastState["type"] = "info") => {
+    setToast({ message, type, visible: true });
+    setTimeout(() => setToast(prev => ({ ...prev, visible: false })), 3000);
+  };
 
   // Real-time listener for voters from RTDB
   useEffect(() => {
-    // Wait for authentication before listening
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       if (user) {
         try {
-          setIsListening(true);
           const votersRef = ref(rtdb, "voters");
-          // RTDB orderByKey and limitToLast works well for chronologically created pushes
           const votersQuery = query(votersRef, limitToLast(20));
 
           const unsubscribeRTDB = onValue(
@@ -78,21 +61,18 @@ export const VoterPage = () => {
                   ...data,
                 });
               });
-              // Reverse for list view (newest first)
               setVoters([...votersList].reverse());
               setErrorMsg(null);
             },
             (error) => {
               console.error("RTDB error:", error);
               setErrorMsg(error.message);
-              setIsListening(false);
             }
           );
 
           return () => unsubscribeRTDB();
         } catch (error: any) {
           setErrorMsg(error.message);
-          setIsListening(false);
         }
       }
     });
@@ -103,13 +83,12 @@ export const VoterPage = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!regName || !regRfid) {
-      toast({ title: "Please fill all fields", status: "warning" });
+      showToast("Please fill all fields", "warning");
       return;
     }
 
     setIsLoading(true);
     try {
-      // Generate a unique QR string for this voter
       const generatedQr = `VOTE_${regName.toUpperCase().replace(/\s/g, "_")}_${Math.floor(1000 + Math.random() * 9000)}`;
       
       await registerVoter({
@@ -121,9 +100,9 @@ export const VoterPage = () => {
       setToken(generatedQr);
       setRegName("");
       setRegRfid("");
-      toast({ title: "Voter Registered Successfully", status: "success" });
+      showToast("Voter Registered Successfully", "success");
     } catch (e: any) {
-      toast({ title: "Registration failed", description: e.message, status: "error" });
+      showToast(e.message || "Registration failed", "error");
     } finally {
       setIsLoading(false);
     }
@@ -134,167 +113,197 @@ export const VoterPage = () => {
     try {
       const data = await devSetup();
       setToken(data.token);
-      toast({ title: "Demo Data Created", status: "info" });
+      showToast("Demo Data Created", "info");
     } catch (e) {
-      toast({ title: "Error creating demo", status: "error" });
+      showToast("Error creating demo", "error");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <Container maxW="container.md" px={4}>
-      <Tabs align="center">
-        <TabList mb={6}>
-          <Tab>Register Voter</Tab>
-          <Tab>Voter Directory</Tab>
-        </TabList>
+    <div className="max-w-2xl mx-auto px-4 py-8 relative">
+      {/* Toast Notification */}
+      {toast.visible && (
+        <div className={`fixed top-20 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white transition-opacity duration-300 ${
+          toast.type === "success" ? "bg-green-600" :
+          toast.type === "error" ? "bg-red-600" :
+          toast.type === "warning" ? "bg-yellow-600" : "bg-blue-600"
+        }`}>
+          {toast.message}
+        </div>
+      )}
 
-        <TabPanels>
-          {/* Tab 1: Registration and QR Display */}
-          <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Box textAlign="center">
-                <Heading size="lg" mb={2}>Registration</Heading>
-                <Text color="gray.600">Link physical RFID tags to digital identities.</Text>
-              </Box>
+      {/* Tabs */}
+      <div className="flex border-b border-gray-200 mb-8">
+        <button
+          onClick={() => setActiveTab("register")}
+          className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === "register" 
+              ? "border-blue-600 text-blue-600" 
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Register Voter
+        </button>
+        <button
+          onClick={() => setActiveTab("directory")}
+          className={`flex-1 py-3 text-sm font-medium transition-colors border-b-2 ${
+            activeTab === "directory" 
+              ? "border-blue-600 text-blue-600" 
+              : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+          }`}
+        >
+          Voter Directory
+        </button>
+      </div>
 
-              <Card variant="outline" shadow="sm" borderRadius="xl">
-                <CardBody p={6}>
-                  {token ? (
-                    <VStack spacing={6}>
-                      <Badge colorScheme="green" p={2} borderRadius="md" variant="subtle">
+      <div className="space-y-8">
+        {activeTab === "register" ? (
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900">Registration</h2>
+              <p className="text-gray-600 mt-1">Link physical RFID tags to digital identities.</p>
+            </div>
+
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-6">
+                {token ? (
+                    <div className="flex flex-col items-center space-y-6">
+                      <span className="bg-green-100 text-green-800 text-xs font-semibold px-3 py-1 rounded-full uppercase tracking-wider">
                         Registration Complete!
-                      </Badge>
-                      <Box 
-                        p={4} 
-                        bg="white" 
-                        border="1px solid" 
-                        borderColor="gray.100" 
-                        borderRadius="lg"
-                        boxShadow="sm"
-                      >
+                      </span>
+                      <div className="p-4 bg-white border border-gray-100 rounded-xl shadow-inner">
                         <QRCode 
                           value={token} 
                           size={200}
                           style={{ height: "auto", maxWidth: "100%", width: "100%" }} 
                         />
-                      </Box>
-                      <Divider />
-                      <VStack spacing={2} textAlign="center">
-                        <Text fontWeight="bold">Digital Token (QR String)</Text>
-                        <Box p={2} bg="gray.50" borderRadius="md" w="full">
-                          <Text fontSize="sm" fontFamily="monospace">{token}</Text>
-                        </Box>
-                        <Button variant="link" colorScheme="blue" onClick={() => setToken(null)}>
+                      </div>
+                      <div className="w-full border-t border-gray-100 italic gap-2 py-4"></div>
+                      <div className="flex flex-col items-center space-y-3 w-full">
+                        <p className="font-bold text-gray-900">Digital Token (QR String)</p>
+                        <div className="p-3 bg-gray-50 rounded-lg w-full text-center">
+                          <code className="text-sm font-mono text-gray-600 break-all">{token}</code>
+                        </div>
+                        <button 
+                          onClick={() => setToken(null)}
+                          className="text-blue-600 hover:text-blue-700 font-medium text-sm transition-colors"
+                        >
                           Register Another
-                        </Button>
-                      </VStack>
-                    </VStack>
+                        </button>
+                      </div>
+                    </div>
                   ) : (
-                    <VStack as="form" onSubmit={handleRegister} spacing={4}>
-                      <FormControl isRequired>
-                        <FormLabel>Voter Name</FormLabel>
-                        <Input 
+                    <form onSubmit={handleRegister} className="space-y-5">
+                      <div className="space-y-1">
+                        <label className="block text-sm font-medium text-gray-700">Voter Name</label>
+                        <input 
+                          required
+                          type="text"
                           placeholder="e.g. Shibili" 
                           value={regName} 
                           onChange={(e) => setRegName(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                         />
-                      </FormControl>
+                      </div>
                       
-                      <FormControl isRequired>
-                        <FormLabel>RFID UID (from Serial Monitor)</FormLabel>
-                        <Input 
+                      <div className="space-y-1">
+                        <label className="block text-sm font-medium text-gray-700">RFID UID (from Serial Monitor)</label>
+                        <input 
+                          required
+                          type="text"
                           placeholder="e.g. 834D4CC5" 
                           value={regRfid} 
                           onChange={(e) => setRegRfid(e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
                         />
-                      </FormControl>
+                      </div>
                       
-                      <Button 
+                      <button 
                         type="submit" 
-                        colorScheme="blue" 
-                        size="lg" 
-                        w="full" 
-                        isLoading={isLoading}
+                        disabled={isLoading}
+                        className="w-full bg-blue-600 text-white font-semibold py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
                       >
-                        Create Voter Profile
-                      </Button>
+                        {isLoading ? "Processing..." : "Create Voter Profile"}
+                      </button>
                       
-                      <Divider py={2} />
+                      <div className="relative py-4">
+                        <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200"></div></div>
+                        <div className="relative flex justify-center text-sm"><span className="px-2 bg-white text-gray-500 font-bold uppercase">Or</span></div>
+                      </div>
                       
-                      <Button 
+                      <button 
+                        type="button"
                         onClick={handleGenerateDemo} 
-                        variant="outline" 
-                        size="sm" 
-                        isLoading={isLoading}
+                        disabled={isLoading}
+                        className="w-full border border-gray-300 text-gray-700 font-medium py-2 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-all text-sm"
                       >
                         Create Demo Profile
-                      </Button>
-                    </VStack>
+                      </button>
+                    </form>
                   )}
-                </CardBody>
-              </Card>
-            </VStack>
-          </TabPanel>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <div className="text-center">
+              <h2 className="text-2xl font-bold text-gray-900">All Voters</h2>
+              <p className="text-gray-600 mt-1">Real-time voter profile monitoring</p>
+            </div>
 
-          {/* Tab 2: Voter List */}
-          <TabPanel>
-            <VStack spacing={6} align="stretch">
-              <Box textAlign="center">
-                <Heading size="lg" mb={2}>All Voters</Heading>
-                <Text color="gray.600" fontSize="sm">
-                  Real-time voter profile monitoring
-                </Text>
-              </Box>
-
-              <Card variant="outline" shadow="sm" borderRadius="xl">
-                <CardBody p={0}>
-                  {voters.length > 0 ? (
-                    <Box overflowX="auto">
-                      <Table size="sm" variant="simple">
-                        <Thead bg="gray.50">
-                          <Tr>
-                            <Th py={4}>Name</Th>
-                            <Th py={4}>RFID</Th>
-                            <Th py={4}>Status</Th>
-                            <Th py={4}>Voted At</Th>
-                          </Tr>
-                        </Thead>
-                        <Tbody>
-                          {voters.map((voter) => (
-                            <Tr key={voter.id}>
-                              <Td fontWeight="bold">{voter.name}</Td>
-                              <Td fontFamily="monospace" fontSize="xs">{voter.rfid}</Td>
-                              <Td>
-                                {voter.has_voted ? (
-                                  <Badge colorScheme="red">Voted</Badge>
-                                ) : (
-                                  <Badge colorScheme="green">Eligible</Badge>
-                                )}
-                              </Td>
-                              <Td fontSize="xs" color="gray.500">
-                                {voter.timestamp 
-                                  ? new Date(voter.timestamp).toLocaleTimeString() 
-                                  : "-"}
-                              </Td>
-                            </Tr>
-                          ))}
-                        </Tbody>
-                      </Table>
-                    </Box>
-                  ) : (
-                    <VStack py={12}>
-                      <Spinner color="blue.500" />
-                      <Text color="gray.500">No voters registered yet.</Text>
-                    </VStack>
-                  )}
-                </CardBody>
-              </Card>
-            </VStack>
-          </TabPanel>
-        </TabPanels>
-      </Tabs>
-    </Container>
+            <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              {voters.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">RFID</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
+                        <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Voted At</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-100 italic">
+                      {voters.map((voter) => (
+                        <tr key={voter.id} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-6 py-4 whitespace-nowrap font-bold text-gray-900">{voter.name}</td>
+                          <td className="px-6 py-4 whitespace-nowrap font-mono text-xs text-gray-600">{voter.rfid}</td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                              voter.has_voted 
+                                ? "bg-red-100 text-red-700" 
+                                : "bg-green-100 text-green-700"
+                            }`}>
+                              {voter.has_voted ? "Voted" : "Eligible"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-500 italic">
+                            {voter.timestamp 
+                              ? new Date(voter.timestamp).toLocaleTimeString() 
+                              : "-"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="py-20 text-center space-y-4">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-blue-600 border-t-transparent"></div>
+                  <p className="text-gray-500 font-medium">No voters registered yet...</p>
+                </div>
+              )}
+            </div>
+            {errorMsg && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">
+                  {errorMsg}
+                </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 };

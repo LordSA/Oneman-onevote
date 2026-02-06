@@ -1,18 +1,26 @@
 import { db } from "../db";
 
 export const verifyToken = async (tokenValue: string, ipAddress?: string) => {
-  // 1. Find voter with matching qrData
+  return verifyVoter("qrData", tokenValue, ipAddress);
+};
+
+export const verifyRfid = async (rfidValue: string, ipAddress?: string) => {
+  return verifyVoter("rfid", rfidValue, ipAddress);
+};
+
+async function verifyVoter(field: "qrData" | "rfid", value: string, ipAddress?: string) {
+  // 1. Find voter with matching field
   const votersRef = db.ref("voters");
-  const querySnapshot = await votersRef.orderByChild("qrData").equalTo(tokenValue).once("value");
+  const querySnapshot = await votersRef.orderByChild(field).equalTo(value).once("value");
 
   if (!querySnapshot.exists()) {
     await db.ref("auditLogs").push({
       action: "VERIFY_FAIL",
-      details: JSON.stringify({ reason: "QR Data not found", qrData: tokenValue }),
+      details: JSON.stringify({ reason: `${field} not found`, value }),
       ipAddress,
       timestamp: Date.now(),
     });
-    throw new Error("Invalid QR Token");
+    throw new Error(`Invalid ${field === "qrData" ? "QR Token" : "RFID Tag"}`);
   }
 
   // Get the voter record (should be unique)
@@ -44,10 +52,15 @@ export const verifyToken = async (tokenValue: string, ipAddress?: string) => {
   // 3. Success Log
   await db.ref("auditLogs").push({
     action: "VERIFY_SUCCESS",
-    details: JSON.stringify({ voterId }),
+    details: JSON.stringify({ voterId, name: result.snapshot.val().name, method: field }),
     ipAddress,
     timestamp: Date.now(),
   });
 
-  return { success: true, name: result.snapshot.val().name, message: "Voter verification successful" };
-};
+  return { 
+    success: true, 
+    name: result.snapshot.val().name, 
+    method: field,
+    message: "Voter verification successful" 
+  };
+}

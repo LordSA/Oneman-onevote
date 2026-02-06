@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { verifyToken } from "./services/verificationService";
+import { verifyToken, verifyRfid } from "./services/verificationService";
 import { z } from "zod";
 import { db } from "./db";
 
@@ -16,6 +16,10 @@ const PORT = process.env.PORT || 3000;
 // Validation Schemas
 const VerifySchema = z.object({
   token: z.string().min(1),
+});
+
+const VerifyRfidSchema = z.object({
+  rfid: z.string().min(1),
 });
 
 const RegisterSchema = z.object({
@@ -46,6 +50,24 @@ app.post("/api/verify", async (req, res) => {
           error: error.message || "Verification failed",
         });
     }
+  }
+});
+
+app.post("/api/verify-rfid", async (req, res) => {
+  try {
+    const { rfid } = VerifyRfidSchema.parse(req.body);
+    const ip = req.ip || req.socket.remoteAddress;
+
+    const result = await verifyRfid(rfid, ip);
+    res.json(result);
+  } catch (error: any) {
+    const status = error.message.includes("already be verified") || error.message.includes("already been verified")
+      ? 409
+      : 400;
+    res.status(status).json({
+      success: false,
+      error: error.message || "RFID Verification failed",
+    });
   }
 });
 
