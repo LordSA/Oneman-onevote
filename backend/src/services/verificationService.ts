@@ -40,21 +40,35 @@ async function verifyVoter(field: "qrData" | "rfid", value: string, ipAddress?: 
   });
 
   if (!result.committed) {
-    await db.ref("auditLogs").push({
+    const errorData = {
       action: "ALREADY_VERIFIED",
       details: JSON.stringify({ voterId }),
       ipAddress,
       timestamp: Date.now(),
+    };
+
+    await db.ref("auditLogs").push(errorData);
+    await db.ref("latest_scan").set({
+      status: "Already Voted",
+      name: "Voter",
+      timestamp: Date.now()
     });
     throw new Error("Voter has already been verified");
   }
 
   // 3. Success Log
-  await db.ref("auditLogs").push({
+  const successData = {
     action: "VERIFY_SUCCESS",
     details: JSON.stringify({ voterId, name: result.snapshot.val().name, method: field }),
     ipAddress,
     timestamp: Date.now(),
+  };
+
+  await db.ref("auditLogs").push(successData);
+  await db.ref("latest_scan").set({
+    status: "Approved",
+    name: result.snapshot.val().name,
+    timestamp: Date.now()
   });
 
   return { 

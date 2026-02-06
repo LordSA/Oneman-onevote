@@ -2,91 +2,88 @@ import { useState, useEffect } from "react";
 import { QrReader } from "react-qr-reader";
 import { verifyToken } from "../api/client";
 import { rtdb, auth } from "../firebase-config";
-import { ref, onValue, query, limitToLast } from "firebase/database";
+import { ref, onValue, query, limitToLast, push } from "firebase/database";
 import { onAuthStateChanged } from "firebase/auth";
 
 interface AuditLog {
   id: string;
-  action: "VERIFY_SUCCESS" | "VERIFY_FAIL" | "ALREADY_VERIFIED";
+  action: "VERIFY_SUCCESS" | "VERIFY_FAIL" | "ALREADY_VERIFIED" | "TEST_LOG";
   details: string;
   timestamp: number;
 }
 
 export const BoothPage = () => {
-  const [status, setStatus] = useState<
-    "idle" | "verifying" | "success" | "error"
-  >("idle");
+  const [status, setStatus] = useState<"idle" | "verifying" | "success" | "error">("idle");
   const [message, setMessage] = useState("");
   const [data, setData] = useState<string | null>(null);
-  const [cameraError, setCameraError] = useState<string | null>(null);
-  const [showToast, setShowToast] = useState(false);
-  const [toastMsg, setToastMsg] = useState("");
   const [recentLogs, setRecentLogs] = useState<AuditLog[]>([]);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [dbStatus, setDbStatus] = useState<"connecting" | "online" | "offline" | "error">("connecting");
+  const [authStatus, setAuthStatus] = useState("Checking...");
 
-  const triggerToast = (msg: string) => {
-    setToastMsg(msg);
-    setShowToast(true);
-    setTimeout(() => setShowToast(false), 3000);
-  };
-
-  // Wait for Auth before listening to RTDB
+  // 1. Connection Monitoring
   useEffect(() => {
+    const connectedRef = ref(rtdb, ".info/connected");
+    return onValue(connectedRef, (snap) => {
+      console.log("RTDB Connection State:", snap.val());
+      setDbStatus(snap.val() === true ? "online" : "offline");
+    });
+  }, []);
+
+  // 2. Real-time Live Feed Logic
+  useEffect(() => {
+    console.log("Initializing Live Feed Listeners...");
+    
+    // Listen to Auth
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        setIsAuthenticated(true);
-        console.log("Booth authenticated:", user.uid);
-
-        const logsRef = ref(rtdb, "auditLogs");
-        const logsQuery = query(logsRef, limitToLast(10));
-        
-        const unsubscribeRTDB = onValue(logsQuery, (snapshot) => {
-          const logs: AuditLog[] = [];
-          snapshot.forEach((child) => {
-            logs.push({ id: child.key!, ...child.val() });
-          });
-          console.log("New logs received:", logs.length);
-          setRecentLogs(logs.reverse());
-        }, (error) => {
-          console.error("Firebase Permission Error:", error.message);
-          triggerToast("Permission denied: Check Firebase Rules");
-        });
-
-        return () => unsubscribeRTDB();
-      }
+      console.log("Firebase Auth State Changed:", user ? `Logged in as ${user.uid}` : "Logged out");
+      setAuthStatus(user ? "Authenticated" : "Not Authenticated");
     });
 
-    return () => unsubscribeAuth();
+    // Listen to Logs (Start immediately, RTDB will queue until auth or connection)
+    const logsRef = ref(rtdb, "auditLogs");
+    const logsQuery = query(logsRef, limitToLast(20));
+    
+    const unsubscribeLogs = onValue(logsQuery, (snapshot) => {
+      console.log("Log Update Received! Count:", snapshot.size);
+      if (snapshot.exists()) {
+        const logs: AuditLog[] = [];
+        snapshot.forEach((child) => {
+          logs.push({ id: child.key!, ...child.val() });
+        });
+        setRecentLogs(logs.sort((a, b) => b.timestamp - a.timestamp));
+      } else {
+        console.log("No logs found in 'auditLogs' node.");
+      }
+    }, (err) => {
+      console.error("FIREBASE PERMISSION ERROR:", err);
+      setDbStatus("error");
+    });
+
+    return () => {
+      unsubscribeAuth();
+      unsubscribeLogs();
+    };
   }, []);
 
-  // Check for camera availability on mount
-  useEffect(() => {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      setCameraError("Your browser does not support camera access. Please use a modern browser and ensure you are using HTTPS.");
+  const sendTestLog = async () => {
+    try {
+      const logsRef = ref(rtdb, "auditLogs");
+      await push(logsRef, {
+        action: "TEST_LOG",
+        details: JSON.stringify({ reason: "Manual Test from Web UI" }),
+        timestamp: Date.now()
+      });
+      console.log("Test log sent successfully!");
+    } catch (e: any) {
+      console.error("Failed to send test log:", e);
+      alert("Permission Refused: Check your Firebase Database Rules!");
     }
-  }, []);
+  };
 
   const handleScan = async (result: any, error: any) => {
-    if (error) {
-      const errorName = error?.name || error?.message;
-      if (
-        errorName === "NotAllowedError" || 
-        errorName === "NotFoundError" ||
-        errorName === "NotReadableError" ||
-        errorName === "OverconstrainedError"
-      ) {
-        console.error("Camera Error:", error);
-        setCameraError(`${error.name}: ${error.message}`);
-      }
-      return;
-    }
+    if (error) return;
 
-    if (
-      result &&
-      result?.text &&
-      result.text !== data &&
-      status === "idle"
-    ) {
+    if (result?.text && result.text !== data && status === "idle") {
       const token = result.text;
       setData(token);
       setStatus("verifying");
@@ -95,17 +92,11 @@ export const BoothPage = () => {
         const response = await verifyToken(token);
         setStatus("success");
         setMessage(`Verified: ${response.name || "Voter"}`);
-        setTimeout(() => {
-          setStatus("idle");
-          setData(null);
-        }, 3000);
+        setTimeout(() => { setStatus("idle"); setData(null); }, 3000);
       } catch (e: any) {
         setStatus("error");
         setMessage(e.response?.data?.error || "Verification Failed");
-        setTimeout(() => {
-          setStatus("idle");
-          setData(null);
-        }, 3000);
+        setTimeout(() => { setStatus("idle"); setData(null); }, 3000);
       }
     }
   };
@@ -113,187 +104,88 @@ export const BoothPage = () => {
   const getLogDetails = (log: AuditLog) => {
     try {
       const details = JSON.parse(log.details);
-      if (log.action === "VERIFY_SUCCESS") return `✅ ${details.name || "Voter"} (Method: ${details.method?.toUpperCase() || "QR"})`;
-      if (log.action === "ALREADY_VERIFIED") return `❌ Duplicate Attempt (ID: ${details.voterId?.slice(-4)})`;
-      if (log.action === "VERIFY_FAIL") return `⚠️ Failed: ${details.reason}`;
+      if (log.action === "VERIFY_SUCCESS") return `✅ ${details.name} (via ${details.method || 'Unknown'})`;
+      if (log.action === "ALREADY_VERIFIED") return `❌ Already Voted (ID: ${details.voterId?.slice(-5)})`;
+      if (log.action === "VERIFY_FAIL") return `⚠️ ${details.reason}`;
+      if (log.action === "TEST_LOG") return `🛠️ System Test: ${details.reason}`;
       return log.action;
-    } catch {
-      return log.action;
-    }
+    } catch { return log.action; }
   };
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-      {/* Left Column: Scanner */}
-      <div className="space-y-8">
-        {/* Toast Notification */}
-        {showToast && (
-          <div className="fixed top-20 right-4 z-50 bg-green-600 text-white px-6 py-3 rounded-lg shadow-lg">
-            {toastMsg}
-          </div>
-        )}
-
-        <div className="text-center space-y-2">
-          <h2 className="text-2xl font-bold text-gray-900">Booth Scanner</h2>
-          <p className="text-gray-600 font-mono text-xs">
-            {isAuthenticated ? "● System Online" : "○ Authenticating..."}
-          </p>
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      {/* Networking Status */}
+      <div className="flex flex-wrap gap-4 mb-6">
+        <div className={`px-4 py-2 rounded-xl border flex items-center gap-2 bg-white text-[10px] font-bold ${dbStatus === 'online' ? 'border-green-200 text-green-700' : 'border-red-200 text-red-700'}`}>
+          <div className={`h-2 w-2 rounded-full ${dbStatus === 'online' ? 'bg-green-500' : 'bg-red-500 animate-pulse'}`} />
+          DB: {dbStatus.toUpperCase()}
         </div>
-
-        <div 
-          className={`relative w-full aspect-square mx-auto bg-black rounded-3xl overflow-hidden shadow-2xl border-4 transition-colors duration-300 ${
-            status === "success" ? "border-green-400" :
-            status === "error" ? "border-red-400" : "border-gray-200"
-          }`}
-        >
-          {cameraError ? (
-            <div className="h-full flex flex-col items-center justify-center p-6 text-center space-y-4">
-              <div className="bg-red-50 border border-red-200 p-4 rounded-xl">
-                <p className="text-red-700 text-sm font-semibold mb-1">Camera Error</p>
-                <p className="text-red-600 text-xs">{cameraError}</p>
-              </div>
-              <button 
-                onClick={() => window.location.reload()}
-                className="bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Refresh Page
-              </button>
-            </div>
-          ) : status === "idle" ? (
-            <div className="absolute inset-0">
-              <QrReader
-                onResult={handleScan}
-                constraints={{ facingMode: "environment" }}
-                containerStyle={{ width: "100%", height: "100%", display: "block", position: "relative" }}
-                videoContainerStyle={{ width: "100%", height: "100%", paddingTop: "0" }}
-                videoStyle={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-                scanDelay={300}
-              />
-              <div className="absolute inset-x-[15%] inset-y-[15%] border-2 border-dashed border-white/50 rounded-2xl pointer-events-none z-10" />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
-            </div>
-          ) : (
-            <div className={`h-full flex flex-col items-center justify-center text-white transition-colors duration-300 ${
-              status === "verifying" ? "bg-black/70" :
-              status === "success" ? "bg-green-600" : "bg-red-600"
-            }`}>
-              {status === "verifying" && (
-                <div className="space-y-4 flex flex-col items-center">
-                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-white border-t-transparent" />
-                  <p className="font-bold tracking-wide">Verifying Token...</p>
-                </div>
-              )}
-              {status === "success" && (
-                <div className="animate-bounce flex flex-col items-center">
-                  <span className="text-8xl">✓</span>
-                  <p className="text-xl font-bold mt-4 uppercase tracking-widest">Approved</p>
-                </div>
-              )}
-              {status === "error" && (
-                <div className="animate-pulse flex flex-col items-center">
-                  <span className="text-8xl">✕</span>
-                  <p className="text-xl font-bold mt-4 uppercase tracking-widest">Rejected</p>
-                </div>
-              )}
-            </div>
-          )}
+        <div className="px-4 py-2 rounded-xl border border-blue-200 bg-white text-blue-700 text-[10px] font-bold">
+          AUTH: {authStatus.toUpperCase()}
         </div>
-
-        <div className="space-y-4">
-          {status === "success" && (
-            <div className="bg-green-600 text-white p-4 rounded-2xl shadow-lg flex items-start space-x-3 transform animate-fade-in">
-               <span className="text-xl">✅</span>
-               <div>
-                 <p className="font-bold">Verified!</p>
-                 <p className="text-sm opacity-90">{message}</p>
-               </div>
-            </div>
-          )}
-
-          {status === "error" && (
-            <div className="bg-red-600 text-white p-4 rounded-2xl shadow-lg flex items-start space-x-3 transform animate-fade-in">
-               <span className="text-xl">⚠️</span>
-               <div>
-                 <p className="font-bold">Access Denied</p>
-                 <p className="text-sm opacity-90">{message}</p>
-               </div>
-            </div>
-          )}
-          
-          {status === "idle" && (
-            <div className="bg-blue-50 p-6 rounded-2xl border border-blue-100 flex flex-col items-center space-y-4">
-              <p className="text-blue-700 text-sm font-medium">Waiting for activity...</p>
-              {!cameraError && (
-                <button 
-                  onClick={async () => {
-                    try {
-                      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-                      stream.getTracks().forEach(t => t.stop());
-                      triggerToast("Camera access granted");
-                    } catch (e: any) {
-                      setCameraError(e.message || "Manual camera check failed");
-                    }
-                  }}
-                  className="text-blue-600 hover:text-blue-700 text-xs font-semibold uppercase tracking-wider transition-colors"
-                >
-                  Test Camera Access
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <button onClick={sendTestLog} className="px-4 py-2 rounded-xl border border-gray-900 bg-gray-900 text-white hover:bg-black text-[10px] font-bold transition-all">
+          SEND TEST EVENT
+        </button>
       </div>
 
-      {/* Right Column: Live Event Feed */}
-      <div className="space-y-6">
-        <div className="bg-gray-900 text-white p-6 rounded-3xl shadow-xl min-h-[500px] flex flex-col overflow-hidden border border-gray-800">
-          <div className="flex items-center justify-between mb-6 border-b border-gray-800 pb-4">
-            <h3 className="text-lg font-bold flex items-center space-x-2">
-              <span className={`h-2 w-2 rounded-full animate-pulse ${isAuthenticated ? "bg-green-500" : "bg-red-500"}`}></span>
-              <span>Live Monitor Feed</span>
-            </h3>
-            <span className="text-[10px] font-mono text-gray-500 uppercase tracking-widest">Real-time</span>
-          </div>
-
-          <div className="flex-1 space-y-3 overflow-y-auto pr-2 terminal-scrollbar">
-            {recentLogs.length > 0 ? (
-              recentLogs.map((log) => (
-                <div 
-                  key={log.id} 
-                  className={`p-3 rounded-xl border-l-[3px] transition-all animate-fade-in ${
-                    log.action === "VERIFY_SUCCESS" ? "bg-green-900/10 border-green-500/50" :
-                    log.action === "ALREADY_VERIFIED" ? "bg-red-900/10 border-red-500/50" :
-                    "bg-yellow-900/10 border-yellow-500/50"
-                  }`}
-                >
-                  <div className="flex justify-between items-start mb-1">
-                    <span className={`text-[9px] font-black uppercase tracking-widest ${
-                      log.action === "VERIFY_SUCCESS" ? "text-green-400" :
-                      log.action === "ALREADY_VERIFIED" ? "text-red-400" : "text-yellow-400"
-                    }`}>
-                      {log.action.replace("_", " ")}
-                    </span>
-                    <span className="text-[9px] text-gray-500 font-mono">
-                      {new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-300 font-medium">
-                    {getLogDetails(log)}
-                  </p>
-                </div>
-              ))
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-7">
+          <div className={`relative aspect-square rounded-[3rem] overflow-hidden bg-black shadow-2xl border-8 transition-all duration-500 ${
+            status === 'success' ? 'border-green-500' : status === 'error' ? 'border-red-500' : 'border-white'
+          }`}>
+            {status === 'idle' ? (
+              <>
+                <QrReader
+                  onResult={handleScan}
+                  constraints={{ facingMode: "environment" }}
+                  containerStyle={{ width: '100%', height: '100%' }}
+                  videoStyle={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-64 h-64 border-2 border-white/50 border-dashed rounded-3xl" />
+              </>
             ) : (
-              <div className="h-full flex flex-col items-center justify-center space-y-3 opacity-20">
-                <div className="h-[2px] w-12 bg-gray-700"></div>
-                <p className="text-[10px] font-mono uppercase tracking-tighter">System Idle</p>
+              <div className={`h-full flex flex-col items-center justify-center text-white px-10 text-center ${
+                status === 'verifying' ? 'bg-blue-600' : status === 'success' ? 'bg-green-600' : 'bg-red-600'
+              }`}>
+                <h2 className="text-4xl font-black uppercase tracking-tighter mb-2">{status === 'verifying' ? 'Checking...' : status.toUpperCase()}</h2>
+                <p className="text-xl font-medium opacity-90">{message}</p>
               </div>
             )}
           </div>
+        </div>
 
-          <div className="mt-6 pt-4 border-t border-gray-800 text-center">
-            <p className="text-[10px] text-gray-600 font-mono uppercase tracking-widest">
-              Secured Connection | Local Node 01
-            </p>
+        <div className="lg:col-span-5 h-[600px] flex flex-col">
+          <div className="bg-[#0f1115] rounded-[2.5rem] p-8 h-full shadow-2xl flex flex-col border border-gray-800">
+            <div className="flex items-center justify-between mb-8">
+              <div className="flex items-center gap-3">
+                <div className="h-3 w-3 bg-red-500 rounded-full animate-ping" />
+                <h3 className="text-white font-black text-xl uppercase italic tracking-tighter">Live Monitor</h3>
+              </div>
+              <span className="text-gray-500 text-[10px] font-mono">{recentLogs.length} EVENTS</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+              {recentLogs.length > 0 ? (
+                recentLogs.map((log) => (
+                  <div key={log.id} className="bg-gray-900 border border-gray-800 p-5 rounded-2xl">
+                    <div className="flex justify-between items-start mb-2">
+                       <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase ${
+                         log.action === 'VERIFY_SUCCESS' ? 'bg-green-500/10 text-green-400' : 
+                         log.action === 'TEST_LOG' ? 'bg-blue-500/10 text-blue-400' : 'bg-red-500/10 text-red-400'
+                       }`}>
+                         {log.action.replace('VERIFY_', '')}
+                       </span>
+                       <span className="text-[9px] font-mono text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <p className="text-sm text-gray-300 font-bold">{getLogDetails(log)}</p>
+                  </div>
+                ))
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center">
+                  <p className="text-gray-600 font-mono text-xs uppercase tracking-[0.2em]">Awaiting Hardware Input...</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
