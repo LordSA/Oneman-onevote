@@ -30,7 +30,7 @@ export const BoothPage = () => {
         
         if (data.status === "Approved" || data.status === "VERIFY_SUCCESS") {
           setStatus("success");
-          setMessage(`✅ ${data.name || 'Voter'} Approved!`);
+          setMessage(`✅ Identity Verified!`);
           setTimeout(() => setStatus("idle"), 4000);
         } else {
           setStatus("error");
@@ -113,9 +113,9 @@ export const BoothPage = () => {
 
           {/* New Debug Panel */}
           <div className="bg-[#111] border border-white/5 p-6 rounded-3xl">
-            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4">Raw Firebase Stream (latest_scan)</h3>
+            <h3 className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-4">Live System Stream</h3>
             <pre className="text-[10px] font-mono text-gray-400 bg-black/40 p-4 rounded-xl overflow-x-auto">
-              {rawScanData ? JSON.stringify(rawScanData, null, 2) : "// Awaiting first update from ESP32..."}
+              {rawScanData ? "// SECURE DATA PACKET RECEIVED //" : "// Awaiting first update from ESP32..."}
             </pre>
           </div>
         </div>
@@ -138,7 +138,7 @@ export const BoothPage = () => {
                       <span className="text-[8px] font-mono text-gray-500">{new Date(log.timestamp).toLocaleTimeString()}</span>
                     </div>
                     <p className="text-sm font-bold text-gray-300">
-                      {log.action === 'VERIFY_SUCCESS' ? (JSON.parse(log.details).name) : "Verification Failed"}
+                      {log.action === 'VERIFY_SUCCESS' ? "Voter Access Granted" : "Verification Failed"}
                     </p>
                  </div>
               ))}
